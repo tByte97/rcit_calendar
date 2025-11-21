@@ -1,0 +1,9 @@
+.venv/
+venv/
+pycache/
+*.pyc
+.idea/
+.vscode/
+.env
+advent.db
+winners.csv

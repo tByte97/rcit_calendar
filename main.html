@@ -1,0 +1,302 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="icon" type="image/png" href="static/icon_logo.png">
+    <title>Різдвяний Календар</title>
+
+    <link rel="stylesheet" href="./static/style.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@800;900&family=Open+Sans:wght@400;600;700&family=Pacifico&family=Mountains+of+Christmas:wght@700&display=swap" rel="stylesheet">
+
+    <script src="https://cdn.jsdelivr.net/npm/alpinejs@3.13.3/dist/cdn.min.js" defer></script>
+    <script src="https://cdn.jsdelivr.net/npm/tsparticles-slim@2.0.6/tsparticles.slim.bundle.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.9.2/dist/confetti.browser.min.js"></script>
+
+    <script src="https://accounts.google.com/gsi/client" async defer></script>
+    
+
+</head>
+
+<body oncontextmenu="return false" onselectstart="return false" ondragstart="return false">
+
+    <script>
+        window.GOOGLE_CLIENT_ID = "{{GOOGLE_CLIENT_ID}}";
+    </script>
+
+    <div x-data="adventCalendar()" class="w-full h-full">
+        <div id="tsparticles"></div>
+        <div class="landscape">
+            <div class="trees-layer">
+                <svg class="tree" viewBox="0 0 100 150"><path d="M50 0 L90 120 L10 120 Z" /></svg>
+                <svg class="tree" viewBox="0 0 100 150" style="animation-delay: 1s"><path d="M50 0 L100 110 L0 110 Z" /></svg>
+                <div style="flex-grow: 1"></div>
+                <svg class="tree" viewBox="0 0 100 150" style="animation-delay: 2s"><path d="M50 10 L80 130 L20 130 Z" /></svg>
+                <svg class="tree" viewBox="0 0 100 150" style="animation-delay: 0.5s"><path d="M50 0 L90 120 L10 120 Z" /></svg>
+            </div>
+            <svg class="snowdrifts" viewBox="0 0 1440 320" preserveAspectRatio="none">
+                <path fill-opacity="1" d="M0,224L48,213.3C96,203,192,181,288,181.3C384,181,480,203,576,224C672,245,768,267,864,261.3C960,256,1056,224,1152,197.3C1248,171,1344,149,1392,138.7L1440,128L1440,320L1392,320C1344,320,1248,320,1152,320C1056,320,960,320,864,320C768,320,672,320,576,320C480,320,384,320,288,320C192,320,96,320,48,320L0,320Z"></path>
+            </svg>
+        </div>
+
+        <header>
+            <div class="header-content">
+                <a href="https://rv-it.college/" target="_blank" class="logo-link" title="Перейти на сайт коледжу">
+                    <img src="/static/logo.png" alt="IT College Logo" class="header-logo-img" 
+                         onerror="this.style.display='none'; this.parentElement.innerHTML='<span style=\'color:white; font-weight:bold;\'>IT COLLEGE</span>'">
+                </a>
+            </div>
+        </header>
+
+        <main>
+            <h1 class="calendar-title">Різдвяний Календар</h1>
+            <div class="slogan">Відкривай подарунки кожного дня!</div>
+
+            <div class="auth-container">
+                <div x-show="!googleToken" style="text-align: center;" x-cloak>
+                    <div style="margin-bottom: 10px; font-weight: bold;">Увійдіть через пошту коледжу:</div>
+                    <div id="google_btn"></div>
+                </div>
+
+                <div x-show="googleToken" class="user-info" x-cloak>
+                    Привіт, <span class="user-email" x-text="userEmail"></span>! 👋
+                    <br>
+                    <button class="logout-btn" @click="logout()">Вийти</button>
+                    <div style="margin-top: 10px; font-size: 0.7rem; cursor: pointer; color: #aaa;" @click="resetProgress()">[Скинути тести]</div>
+                </div>
+            </div>
+
+            <div class="grid" :class="{ 'blur': !googleToken }">
+                <template x-for="day in totalDays" :key="day">
+                    <div class="cell"
+                         :class="{
+                            'locked future': isLocked(day),
+                            'past': isPast(day),
+                            'today': isToday(day),
+                            'opened': isOpened(day)
+                         }"
+                         @click="handleDayClick(day)">
+                        
+                        <div class="cell-number" x-text="day"></div>
+                        <div class="cell-icon"></div>
+                    </div>
+                </template>
+            </div>
+        </main>
+
+        <div class="modal-overlay" :class="{ 'active': showModal }">
+            <div class="modal" @click.away="showModal = false">
+                <div class="modal-title" x-text="modalTitle"></div>
+                <div class="modal-message">
+                    <template x-if="isLoading">
+                        <span>❄️ Відкриваємо...</span>
+                    </template>
+                    <template x-if="!isLoading">
+                        <div>
+                            <div x-text="modalMessage"></div>
+                            <div x-show="modalPrize" class="prize-box" x-text="modalPrize"></div>
+                        </div>
+                    </template>
+                </div>
+                <button class="close-btn" @click="showModal = false">Зрозуміло</button>
+            </div>
+        </div>
+
+    </div>
+    
+    <script>
+        document.addEventListener('keydown', function(e) {
+            if (e.key === 'F12' || (e.ctrlKey && e.key === 'u') || (e.ctrlKey && e.shiftKey && e.key === 'i') || (e.ctrlKey && e.key === 'c')) {
+                e.preventDefault();
+                return false;
+            }
+        });
+
+        document.addEventListener('alpine:init', () => {
+            Alpine.data('adventCalendar', () => ({
+                totalDays: 24,
+                apiUrl: 'http://127.0.0.1:8000',
+                
+                showModal: false,
+                modalTitle: '',
+                modalMessage: '',
+                modalPrize: null,
+                isLoading: false,
+
+                // !!!! цифри для тесту 1 - перший день, 2 другий і так далі, null автоматично (але вже з грудня рахує)
+                currentDay: 1, 
+                
+                clickedDays: [],
+                googleToken: null,
+                userEmail: '',
+
+                init() {
+                    localStorage.removeItem('clickedDays');
+
+                    this.googleToken = localStorage.getItem('googleToken');
+                    this.userEmail = localStorage.getItem('userEmail');
+                    
+                    if (!this.googleToken) {
+                        this.renderGoogleButton();
+                    }
+
+                    const now = new Date();
+                    if (this.currentDay === null) {
+                        const month = now.getMonth();
+                        if (month === 11) this.currentDay = now.getDate(); 
+                        else if (month < 11) this.currentDay = 0; 
+                        else this.currentDay = 25; 
+                    }
+                    
+                    this.clickedDays = JSON.parse(localStorage.getItem('clickedDays') || '[]');
+                },
+
+                renderGoogleButton() {
+                    const checkGoogle = setInterval(() => {
+                        if (window.google && window.GOOGLE_CLIENT_ID) {
+                            clearInterval(checkGoogle);
+                            
+                            google.accounts.id.initialize({
+                                client_id: window.GOOGLE_CLIENT_ID,
+                                callback: (response) => this.handleGoogleLogin(response)
+                            });
+                            
+                            google.accounts.id.renderButton(
+                                document.getElementById("google_btn"),
+                                { theme: "outline", size: "large", width: 250 }
+                            );
+                        }
+                    }, 500);
+                },
+
+                handleGoogleLogin(response) {
+                    const token = response.credential;
+                    const payload = JSON.parse(atob(token.split('.')[1]));
+                    
+                    if (payload.email.endsWith("@rcit.ukr.education")) {
+                        this.googleToken = token;
+                        this.userEmail = payload.email;
+                        localStorage.setItem('googleToken', token);
+                        localStorage.setItem('userEmail', payload.email);
+                    } else {
+                        alert("Доступ дозволено лише для пошти @rcit.ukr.education!");
+                    }
+                },
+
+                logout() {
+                    this.googleToken = null;
+                    this.userEmail = '';
+                    localStorage.removeItem('googleToken');
+                    localStorage.removeItem('userEmail');
+                    setTimeout(() => this.renderGoogleButton(), 100);
+                },
+
+                resetProgress() {
+                    if(confirm("Видалити історію з браузера?")) {
+                        localStorage.removeItem('clickedDays');
+                        this.clickedDays = [];
+                        alert("Історія очищена.");
+                    }
+                },
+
+                isLocked(day) { return day > this.currentDay; },
+                isPast(day) { return day < this.currentDay; },
+                isToday(day) { return day === this.currentDay; },
+                isOpened(day) { return this.clickedDays.includes(day); },
+
+                async handleDayClick(day) {
+                    if (!this.googleToken) {
+                        alert("Будь ласка, увійдіть через Google!");
+                        return;
+                    }
+
+                    if (this.isLocked(day)) {
+                        this.presentModal("Ще рано 🔒", "Цей день настане пізніше.");
+                        return;
+                    }
+                    if (this.isPast(day)) {
+                         this.presentModal("Пропущено ❌", "Ех, цей день вже минув.");
+                         return;
+                    }
+                    if (this.isOpened(day)) {
+                         this.presentModal("Вже відкрито ✅", "Ти вже перевіряв цей день.");
+                         return;
+                    }
+
+                    this.isLoading = true;
+                    this.showModal = true;
+                    this.modalTitle = "Відкриваємо...";
+                    this.modalMessage = "";
+                    this.modalPrize = null;
+
+                    try {
+                        const response = await fetch(`${this.apiUrl}/try-luck`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ day: day, token: this.googleToken })
+                        });
+                        
+                        if (response.status === 401) {
+                            this.logout();
+                            this.showModal = false;
+                            alert("Сесія закінчилась. Увійдіть знову.");
+                            return;
+                        }
+
+                        const data = await response.json();
+                        this.isLoading = false;
+                        
+                        if (response.status === 200) {
+                            if (data.status === 'WIN') {
+                                this.presentModal("ВІТАЄМО! 🎉", data.message, data.prize);
+                                confetti({ particleCount: 150, spread: 70, origin: { y: 0.6 } });
+                            } else {
+                                this.presentModal("Сьогодні...", data.message);
+                            }
+                        } else {
+                            let errorMsg = data.detail ? JSON.stringify(data.detail) : data.message;
+                            this.presentModal("Помилка", errorMsg);
+                        }
+
+                        if (!this.clickedDays.includes(day)) {
+                            this.clickedDays.push(day);
+                            localStorage.setItem('clickedDays', JSON.stringify(this.clickedDays));
+                        }
+
+                    } catch (e) {
+                        this.isLoading = false;
+                        this.presentModal("Помилка з'єднання", "Не вдалося зв'язатися з сервером.");
+                    }
+                },
+
+                presentModal(title, message, prize = null) {
+                    this.modalTitle = title;
+                    this.modalMessage = message;
+                    this.modalPrize = prize;
+                    this.showModal = true;
+                }
+            }));
+        });
+
+        document.addEventListener("DOMContentLoaded", async () => {
+            await tsParticles.load('tsparticles', {
+                particles: {
+                    color: { value: "#ffffff" },
+                    move: { enable: true, speed: 1.5, direction: "bottom", random: true },
+                    number: { value: 100, density: { enable: true, area: 800 } },
+                    opacity: { value: 0.7, random: true },
+                    shape: { type: "circle" },
+                    size: { value: { min: 1, max: 4 } },
+                },
+                interactivity: {
+                    events: { onHover: { enable: true, mode: "repulse" } },
+                    modes: { repulse: { distance: 100, duration: 0.4 } }
+                },
+                background: { opacity: 0 }
+            });
+        });
+    </script>
+</body>
+</html>
