@@ -14,3 +14,16 @@ pip install -r requirements.txt
 uvicorn main:app --reload
 
 -Щоб змінюати дні в календарі, перейдіть у main.html і там через змінну *currentDay* і там задавайте дні-
+
+
+--DOCKER--
+
+docker build -t advcalendar .
+
+
+docker run -d --env-file .env -p 8000:8000 advcalendar
+
+
+там має бути файл з тими хто виграв, то щоб його отримати з контейнера
+
+docker cp <container_id>:/app/winners.csv ./winners.csv
