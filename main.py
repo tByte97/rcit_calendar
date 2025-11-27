@@ -121,13 +121,13 @@ def try_luck(request: TryLuckRequest, db: Session = Depends(get_db)):
     current_day_of_month = datetime.now().day
 
     # щоб протестувати вікриття ячейок на фронті просто закоментуй цю перевірку днів (до try)
-    # if request.day < current_day_of_month:
-    #     return {
-    #         "status": "INFO", 
-    #         "title": "Архів 📜", 
-    #         "message": day_config.get('text', 'Цей день вже минув.'),
-    #         "prize": None
-    #     }
+    if request.day < current_day_of_month:
+        return {
+            "status": "INFO", 
+            "title": "Архів 📜", 
+            "message": day_config.get('text', 'Цей день вже минув.'),
+            "prize": None
+        }
 
     try:
         attempt = UserAttempt(stud_email=user_email, day=request.day)
