@@ -11,7 +11,7 @@ pip install -r requirements.txt
 
 4. Запуск сервера
 
-uvicorn main:app --reload
+uvicorn main:app --reload / або просто python main.py
 
 -Щоб змінюати дні в календарі, перейдіть у main.html і там через змінну *currentDay* і там задавайте дні-
 
