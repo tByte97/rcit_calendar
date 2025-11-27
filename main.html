@@ -20,8 +20,6 @@
 
 </head>
 
-<body oncontextmenu="return false" onselectstart="return false" ondragstart="return false">
-
     <script>window.GOOGLE_CLIENT_ID = "{{GOOGLE_CLIENT_ID}}";</script>
 
     <div x-data="adventCalendar()" class="w-full h-full">
@@ -41,7 +39,7 @@
 
         <header>
             <div class="header-content">
-                <a href="http://rcit.ukr.education" target="_blank" class="logo-link" title="Перейти на сайт коледжу">
+                <a href="https://rv-it.college/" target="_blank" class="logo-link" title="Перейти на сайт коледжу">
                     <img src="/static/logo.png" alt="IT College Logo" class="header-logo-img" 
                          onerror="this.style.display='none'; this.parentElement.innerHTML='<span style=\'color:white; font-weight:bold;\'>IT COLLEGE</span>'">
                 </a>
@@ -98,14 +96,29 @@
     </div>
     
 <script>
-        document.addEventListener('keydown', function(e) {
-            if (e.key === 'F12' || (e.ctrlKey && e.key === 'u') || (e.ctrlKey && e.shiftKey && e.key === 'i') || (e.ctrlKey && e.key === 'c')) { e.preventDefault(); return false; }
-        });
+        function parseJwt(token) {
+            if (!token) throw new Error("Порожній токен");
+            const parts = token.split('.');
+            if (parts.length < 2) throw new Error("Некоректний JWT токен");
+            const base64Url = parts[1];
+            let base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
+            const padding = 4 - (base64.length % 4);
+            if (padding !== 4) {
+                base64 += '='.repeat(padding);
+            }
+            const jsonPayload = decodeURIComponent(
+                atob(base64)
+                    .split('')
+                    .map(c => '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2))
+                    .join('')
+            );
+            return JSON.parse(jsonPayload);
+        }
 
         document.addEventListener('alpine:init', () => {
             Alpine.data('adventCalendar', () => ({
                 totalDays: 24,
-                apiUrl: '', // URL підставиться автоматично
+                apiUrl: window.location.origin,
                 
                 showModal: false,
                 modalTitle: '',
@@ -113,34 +126,44 @@
                 modalPrize: null,
                 isLoading: false,
                 
-                // 1 - для тестування (грудень), null - для реального календаря
-                currentDay: 5, 
+                currentDay: 1, 
                 
                 clickedDays: [],
                 googleToken: null,
                 userEmail: '',
 
                 init() {
-                    this.googleToken = localStorage.getItem('googleToken');
-                    this.userEmail = localStorage.getItem('userEmail');
+                    if (!window.GOOGLE_CLIENT_ID || window.GOOGLE_CLIENT_ID.includes('{{')) {
+                        console.error('Google Client ID не налаштований!');
+                    }
+
+                    try {
+                        this.googleToken = localStorage.getItem('googleToken');
+                        this.userEmail = localStorage.getItem('userEmail');
+                    } catch (e) {
+                        console.warn('localStorage недоступний:', e);
+                    }
                     
                     const now = new Date();
-                    if (this.currentDay === null) {
-                        const month = now.getMonth();
-                        if (month === 11) this.currentDay = now.getDate(); 
-                        else if (month < 11) this.currentDay = 0;
-                        else this.currentDay = 25; 
+                    const month = now.getMonth();
+                    if (month === 11) { 
+                        this.currentDay = now.getDate(); 
+                    } else if (month < 11) {
+                        this.currentDay = 0; 
+                    } else {
+                        this.currentDay = 25; 
                     }
 
                     if (!this.googleToken) { 
+                        this.renderGoogleButton();
                     } else {
- 
                         this.syncHistory();
                     }
                 },
 
                 async syncHistory() {
                     if (!this.googleToken) return;
+                    
                     try {
                         const response = await fetch(`${this.apiUrl}/get-history`, {
                             method: 'POST',
@@ -150,7 +173,6 @@
                         
                         if (response.ok) {
                             const data = await response.json();
-
                             if (Array.isArray(data)) {
                                 this.clickedDays = data;
                             } else if (data.opened_days) {
@@ -166,44 +188,47 @@
 
                 renderGoogleButton() {
                     const checkGoogle = setInterval(() => {
-                        if (window.google && window.GOOGLE_CLIENT_ID) {
+                        if (window.google && window.GOOGLE_CLIENT_ID && !window.GOOGLE_CLIENT_ID.includes('{{')) {
                             clearInterval(checkGoogle);
-                            google.accounts.id.initialize({
-                                client_id: window.GOOGLE_CLIENT_ID,
-                                callback: (response) => this.handleGoogleLogin(response)
-                            });
-                            google.accounts.id.renderButton(
-                                document.getElementById("google_btn"),
-                                { theme: "outline", size: "large", width: 250 }
-                            );
+                            
+                            try {
+                                google.accounts.id.initialize({
+                                    client_id: window.GOOGLE_CLIENT_ID,
+                                    callback: (response) => this.handleGoogleLogin(response)
+                                });
+                                
+                                google.accounts.id.renderButton(
+                                    document.getElementById("google_btn"),
+                                    { theme: "outline", size: "large", width: 250 }
+                                );
+                            } catch (e) {
+                                console.error("Помилка ініціалізації Google Sign-In:", e);
+                            }
                         }
                     }, 500);
+                    
+                    setTimeout(() => clearInterval(checkGoogle), 10000);
                 },
 
                 handleGoogleLogin(response) {
                     const token = response.credential;
-                    
                     try {
-                        const base64Url = token.split('.')[1];
-                        const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
-                        
-                        const jsonPayload = atob(base64);
-                        const payload = JSON.parse(jsonPayload);
-                        
-                        if (payload.email.endsWith("@rcit.ukr.education")) {
+                        const payload = parseJwt(token);
+                        if (payload.email && payload.email.endsWith("@rcit.ukr.education")) {
                             this.googleToken = token;
                             this.userEmail = payload.email;
-                            
-                            localStorage.setItem('googleToken', token);
-                            localStorage.setItem('userEmail', payload.email);
-                            
-                            this.syncHistory(); 
-                            
+
+                            try {
+                                localStorage.setItem('googleToken', token);
+                                localStorage.setItem('userEmail', payload.email);
+                            } catch (e) {
+                                console.warn('Не вдалося зберегти в localStorage:', e);
+                            }
+                            this.syncHistory();
                         } else {
                             alert("Доступ дозволено лише для пошти @rcit.ukr.education!");
-                            this.logout(); 
+                            this.logout();
                         }
-
                     } catch (e) {
                         console.error("Помилка обробки токена:", e);
                         alert("Не вдалося увійти. Спробуйте ще раз.");
@@ -214,8 +239,12 @@
                     this.googleToken = null;
                     this.userEmail = null;
                     this.clickedDays = [];
-                    localStorage.removeItem('googleToken');
-                    localStorage.removeItem('userEmail');
+                    try {
+                        localStorage.removeItem('googleToken');
+                        localStorage.removeItem('userEmail');
+                    } catch (e) {
+                        console.warn('Не вдалося очистити localStorage:', e);
+                    }
                     setTimeout(() => this.renderGoogleButton(), 100);
                 },
 
@@ -225,8 +254,10 @@
                 isOpened(day) { return this.clickedDays.includes(day); },
 
                 async handleDayClick(day) {
-                    if (!this.googleToken) { alert("Увійдіть, щоб відкрити календар!"); return; }
-                    
+                    if (!this.googleToken) { 
+                        alert("Увійдіть, щоб відкрити календар!"); 
+                        return; 
+                    }
                     if (this.isLocked(day)) { 
                         this.presentModal("Ще рано 🔒", "Цей день настане пізніше."); 
                         return; 
@@ -263,17 +294,21 @@
                             }
                             
                             if (data.status === 'WIN_PRIZE') {
-                                 if (typeof confetti === 'function') {
-                                    confetti({ particleCount: 150, spread: 70, origin: { y: 0.6 } });
-                                 }
+                                if (typeof confetti === 'function') {
+                                    confetti({ 
+                                        particleCount: 150, 
+                                        spread: 70, 
+                                        origin: { y: 0.6 } 
+                                    });
+                                }
                             }
                         } else {
-                            this.presentModal("Увага", data.message);
+                            this.presentModal("Увага", data.message || "Щось пішло не так");
                         }
-
                     } catch (e) {
+                        console.error("Помилка запиту:", e);
                         this.isLoading = false;
-                        this.presentModal("Помилка з'єднання", "Не вдалося зв'язатися з сервером.");
+                        this.presentModal("Помилка з'єднання", "Не вдалося зв'язатися з сервером. Перевірте інтернет-з'єднання.");
                     }
                 },
 
@@ -283,25 +318,27 @@
                     this.modalPrize = prize;
                     this.showModal = true;
                 }
-            }));
-        });
+            })); 
+        }); 
 
-               document.addEventListener("DOMContentLoaded", async () => {
-            await tsParticles.load('tsparticles', {
-                particles: {
-                    color: { value: "#ffffff" },
-                    move: { enable: true, speed: 1.5, direction: "bottom", random: true },
-                    number: { value: 100, density: { enable: true, area: 800 } },
-                    opacity: { value: 0.7, random: true },
-                    shape: { type: "circle" },
-                    size: { value: { min: 1, max: 4 } },
-                },
-                interactivity: {
-                    events: { onHover: { enable: true, mode: "repulse" } },
-                    modes: { repulse: { distance: 100, duration: 0.4 } }
-                },
-                background: { opacity: 0 }
-            });
+        document.addEventListener("DOMContentLoaded", async () => {
+            if (typeof tsParticles !== 'undefined') {
+                await tsParticles.load('tsparticles', {
+                    particles: {
+                        color: { value: "#ffffff" },
+                        move: { enable: true, speed: 1.5, direction: "bottom", random: true },
+                        number: { value: 100, density: { enable: true, area: 800 } },
+                        opacity: { value: 0.7, random: true },
+                        shape: { type: "circle" },
+                        size: { value: { min: 1, max: 4 } },
+                    },
+                    interactivity: {
+                        events: { onHover: { enable: true, mode: "repulse" } },
+                        modes: { repulse: { distance: 100, duration: 0.4 } }
+                    },
+                    background: { opacity: 0 }
+                });
+            }
         });
     </script>
 </body>

@@ -4,6 +4,7 @@ from fastapi import FastAPI, Depends, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.middleware.base import BaseHTTPMiddleware
 from datetime import datetime, time
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
@@ -45,6 +46,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 STATIC_DIR = os.path.join(BASE_DIR, "static")
 
@@ -68,16 +70,25 @@ def get_secret_time_for_day(day: int) -> time:
     hour = random.randint(ACTIVE_START_HOUR, ACTIVE_END_HOUR - 1)
     minute = random.randint(0, 59)
     second = random.randint(0, 59)
-    print(hour, minute, second)
+    if DEBUG_MODE:
+        print(f"День {day}: {hour:02d}:{minute:02d}:{second:02d}")
     return time(hour, minute, second)
 
 def verify_google_token(token: str) -> str:
     try:
         id_info = id_token.verify_oauth2_token(token, google_requests.Request(), GOOGLE_CLIENT_ID)
-        email = id_info['email']
+        email = id_info.get('email')
+        
+        if not email:
+            raise ValueError("Email не знайдено")
+        
+        if not email.endswith(f"@{ALLOWED_DOMAIN}"):
+            raise ValueError(f"Доступ тільки для @{ALLOWED_DOMAIN}")
+        
         return email
-    except Exception:
-        raise HTTPException(status_code=401, detail="Помилка авторизації")
+    except Exception as e:
+        print(f"Помилка: {e}")
+        raise HTTPException(status_code=403, detail=f"Доступ тільки для @{ALLOWED_DOMAIN}")
 
 class TryLuckRequest(BaseModel):
     day: int        
@@ -89,11 +100,17 @@ class HistoryRequest(BaseModel):
 
 def log_winner_to_file(day, email, prize):
     try:
+        file_exists = os.path.isfile('winners.csv')
         with open('winners.csv', 'a', newline='', encoding="utf-8") as file:
             writer = csv.writer(file)
+            if not file_exists:
+                writer.writerow(['День', 'Email', 'Приз', 'Дата/Час'])
             writer.writerow([day, email, prize, datetime.now().strftime("%Y-%m-%d %H:%M:%S")])
-    except Exception:
-        pass
+        if DEBUG_MODE:
+            print(f"Переможець записаний: {email} - День {day}")
+    except Exception as e:
+        if DEBUG_MODE:
+            print(f"Помилка запису переможця: {e}")
 
 @app.get("/", response_class=HTMLResponse)
 async def read_root():
@@ -105,22 +122,21 @@ async def read_root():
         content = content.replace("{{GOOGLE_CLIENT_ID}}", safe_client_id)
         return HTMLResponse(content=content)
     except FileNotFoundError:
-        return HTMLResponse(content="<h1>Помилка: main.html не знайдено!</h1>", status_code=500)
+        return HTMLResponse(content="<h1>main.html не знайдено!</h1>", status_code=500)
 
 @app.post("/try-luck")
 def try_luck(request: TryLuckRequest, db: Session = Depends(get_db)):
     user_email = verify_google_token(request.token)
     
     if not user_email.endswith(f"@{ALLOWED_DOMAIN}"):
-         raise HTTPException(status_code=403, detail=f"Доступ тільки для {ALLOWED_DOMAIN}")
+         raise HTTPException(status_code=403, detail=f"Доступ тільки для @{ALLOWED_DOMAIN}")
 
     day_config = Prizes_dict.get(request.day)
     if not day_config:
-        raise HTTPException(status_code=404, detail="День не знайдено")
+        raise HTTPException(status_code=404, detail="День не знайдено в конфігурації")
 
     current_day_of_month = datetime.now().day
 
-    # щоб протестувати вікриття ячейок на фронті просто закоментуй цю перевірку днів (до try)
     if request.day < current_day_of_month:
         return {
             "status": "INFO", 
@@ -133,9 +149,17 @@ def try_luck(request: TryLuckRequest, db: Session = Depends(get_db)):
         attempt = UserAttempt(stud_email=user_email, day=request.day)
         db.add(attempt)
         db.commit()
+        if DEBUG_MODE:
+            print(f"Користувач {user_email} відкрив день {request.day}")
     except IntegrityError:
         db.rollback()
-        return {"status": "ALREADY_OPENED", "message": "Ти вже відкривав це віконце сьогодні!"}
+        if DEBUG_MODE:
+            print(f"Користувач {user_email} вже відкривав день {request.day}")
+        return {
+            "status": "ALREADY_OPENED", 
+            "title": "Вже відкрито",
+            "message": "Ти вже відкривав це віконце сьогодні!"
+        }
 
     response = {
         "status": "INFO", 
@@ -168,9 +192,16 @@ def try_luck(request: TryLuckRequest, db: Session = Depends(get_db)):
                     response["title"] = "🎉 НЕЙМОВІРНО! 🎉"
                     response["message"] = "Ти сьогоднішній щасливчик!"
                     response["prize"] = prize_name
+                    
+                    if DEBUG_MODE:
+                        print(f"ПЕРЕМОЖЕЦЬ! {user_email} виграв {prize_name} (День {request.day})")
                 except IntegrityError:
                     db.rollback()
-                    pass
+                    if DEBUG_MODE:
+                        print(f"Конфлікт при записі переможця для дня {request.day}")
+            else:
+                if DEBUG_MODE:
+                    print(f"Час ще не настав. Поточний: {current_time}, Потрібний: {target_time}")
 
     return response
 
@@ -179,11 +210,28 @@ def try_luck(request: TryLuckRequest, db: Session = Depends(get_db)):
 def get_user_history(request: HistoryRequest, db: Session = Depends(get_db)):
     try:
         user_email = verify_google_token(request.token)
-    except Exception:
+    except HTTPException:
         return []
 
     attempts = db.query(UserAttempt).filter(UserAttempt.stud_email == user_email).all()
-    return [attempt.day for attempt in attempts]
+    opened_days = [attempt.day for attempt in attempts]
+    
+    if DEBUG_MODE:
+        print(f"📋 Історія для {user_email}: {opened_days}")
+    
+    return opened_days
+
+@app.get("/health")
+def health_check():
+    return {
+        "status": "ok",
+        "timestamp": datetime.now().isoformat(),
+        "google_client_configured": bool(GOOGLE_CLIENT_ID),
+        "debug_mode": DEBUG_MODE
+    }
 
 if __name__ == "__main__":
+    print(f" Google Client ID: {'Налаштовано' if GOOGLE_CLIENT_ID else 'Відсутній'}")
+    print(f"CORS Origins: {origins}")
+    print(f"Активні години: {ACTIVE_START_HOUR}:00 - {ACTIVE_END_HOUR}:00")
     uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
