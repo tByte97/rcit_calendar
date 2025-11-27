@@ -97,7 +97,8 @@
         </div>
     </div>
     
-    <script>
+<script>
+        // Блокування інструментів розробника (F12)
         document.addEventListener('keydown', function(e) {
             if (e.key === 'F12' || (e.ctrlKey && e.key === 'u') || (e.ctrlKey && e.shiftKey && e.key === 'i') || (e.ctrlKey && e.key === 'c')) { e.preventDefault(); return false; }
         });
@@ -105,7 +106,7 @@
         document.addEventListener('alpine:init', () => {
             Alpine.data('adventCalendar', () => ({
                 totalDays: 24,
-                apiUrl: '',  //домен автоматично підставляєтьсяі
+                apiUrl: '', // URL підставиться автоматично
                 
                 showModal: false,
                 modalTitle: '',
@@ -113,8 +114,8 @@
                 modalPrize: null,
                 isLoading: false,
                 
-                // currentDay: null (авто-дата, починається з грудня), для тестів цифри
-                currentDay: null, 
+                // 1 - для тестування (грудень), null - для реального календаря
+                currentDay: 5, 
                 
                 clickedDays: [],
                 googleToken: null,
@@ -124,16 +125,44 @@
                     this.googleToken = localStorage.getItem('googleToken');
                     this.userEmail = localStorage.getItem('userEmail');
                     
-                    if (!this.googleToken) { this.renderGoogleButton(); }
-
                     const now = new Date();
                     if (this.currentDay === null) {
                         const month = now.getMonth();
                         if (month === 11) this.currentDay = now.getDate(); 
-                        else if (month < 11) this.currentDay = 0; 
+                        else if (month < 11) this.currentDay = 0;
                         else this.currentDay = 25; 
                     }
-                    this.clickedDays = JSON.parse(localStorage.getItem('clickedDays') || '[]');
+
+                    if (!this.googleToken) { 
+                    } else {
+ 
+                        this.syncHistory();
+                    }
+                },
+
+                async syncHistory() {
+                    if (!this.googleToken) return;
+                    try {
+                        const response = await fetch(`${this.apiUrl}/get-history`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ token: this.googleToken })
+                        });
+                        
+                        if (response.ok) {
+                            const data = await response.json();
+
+                            if (Array.isArray(data)) {
+                                this.clickedDays = data;
+                            } else if (data.opened_days) {
+                                this.clickedDays = data.opened_days;
+                            }
+                        } else if (response.status === 401) {
+                            this.logout();
+                        }
+                    } catch (e) {
+                        console.error("Не вдалося завантажити історію:", e);
+                    }
                 },
 
                 renderGoogleButton() {
@@ -154,20 +183,38 @@
 
                 handleGoogleLogin(response) {
                     const token = response.credential;
-                    const payload = JSON.parse(atob(token.split('.')[1]));
                     
-                    if (payload.email.endsWith("@rcit.ukr.education")) {
-                        this.googleToken = token;
-                        this.userEmail = payload.email;
-                        localStorage.setItem('googleToken', token);
-                        localStorage.setItem('userEmail', payload.email);
-                    } else {
-                        alert("Доступ дозволено лише для пошти @rcit.ukr.education!");
+                    try {
+                        const base64Url = token.split('.')[1];
+                        const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
+                        
+                        const jsonPayload = atob(base64);
+                        const payload = JSON.parse(jsonPayload);
+                        
+                        if (payload.email.endsWith("@rcit.ukr.education")) {
+                            this.googleToken = token;
+                            this.userEmail = payload.email;
+                            
+                            localStorage.setItem('googleToken', token);
+                            localStorage.setItem('userEmail', payload.email);
+                            
+                            this.syncHistory(); 
+                            
+                        } else {
+                            alert("Доступ дозволено лише для пошти @rcit.ukr.education!");
+                            this.logout(); 
+                        }
+
+                    } catch (e) {
+                        console.error("Помилка обробки токена:", e);
+                        alert("Не вдалося увійти. Спробуйте ще раз.");
                     }
                 },
 
                 logout() {
                     this.googleToken = null;
+                    this.userEmail = null;
+                    this.clickedDays = [];
                     localStorage.removeItem('googleToken');
                     localStorage.removeItem('userEmail');
                     setTimeout(() => this.renderGoogleButton(), 100);
@@ -185,7 +232,6 @@
                         this.presentModal("Ще рано 🔒", "Цей день настане пізніше."); 
                         return; 
                     }
-                    
                     
                     this.isLoading = true;
                     this.showModal = true;
@@ -210,19 +256,20 @@
                         const data = await response.json();
                         this.isLoading = false;
                         
-                        if (response.status === 200 || data.status === 'WIN_PRIZE' || data.status === 'INFO' || data.status === 'ALREADY_OPENED') {
+                        if (response.status === 200 || ['WIN_PRIZE', 'INFO', 'ALREADY_OPENED'].includes(data.status)) {
                             this.presentModal(data.title || "Повідомлення", data.message, data.prize);
+                            
+                            if (!this.clickedDays.includes(day)) {
+                                this.clickedDays.push(day);
+                            }
+                            
+                            if (data.status === 'WIN_PRIZE') {
+                                 if (typeof confetti === 'function') {
+                                    confetti({ particleCount: 150, spread: 70, origin: { y: 0.6 } });
+                                 }
+                            }
                         } else {
                             this.presentModal("Увага", data.message);
-                        }
-
-                        if (!this.clickedDays.includes(day)) {
-                            this.clickedDays.push(day);
-                            localStorage.setItem('clickedDays', JSON.stringify(this.clickedDays));
-                        }
-                        
-                        if (data.status === 'WIN_PRIZE') {
-                             confetti({ particleCount: 150, spread: 70, origin: { y: 0.6 } });
                         }
 
                     } catch (e) {
@@ -240,9 +287,20 @@
             }));
         });
 
-        document.addEventListener("DOMContentLoaded", async () => {
+               document.addEventListener("DOMContentLoaded", async () => {
             await tsParticles.load('tsparticles', {
-                particles: { color: { value: "#ffffff" }, move: { enable: true, speed: 1.5, direction: "bottom", random: true }, number: { value: 100, density: { enable: true, area: 800 } }, opacity: { value: 0.7, random: true }, shape: { type: "circle" }, size: { value: { min: 1, max: 4 } }, },
+                particles: {
+                    color: { value: "#ffffff" },
+                    move: { enable: true, speed: 1.5, direction: "bottom", random: true },
+                    number: { value: 100, density: { enable: true, area: 800 } },
+                    opacity: { value: 0.7, random: true },
+                    shape: { type: "circle" },
+                    size: { value: { min: 1, max: 4 } },
+                },
+                interactivity: {
+                    events: { onHover: { enable: true, mode: "repulse" } },
+                    modes: { repulse: { distance: 100, duration: 0.4 } }
+                },
                 background: { opacity: 0 }
             });
         });

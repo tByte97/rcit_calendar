@@ -68,6 +68,7 @@ def get_secret_time_for_day(day: int) -> time:
     hour = random.randint(ACTIVE_START_HOUR, ACTIVE_END_HOUR - 1)
     minute = random.randint(0, 59)
     second = random.randint(0, 59)
+    print(hour, minute, second)
     return time(hour, minute, second)
 
 def verify_google_token(token: str) -> str:
@@ -81,6 +82,10 @@ def verify_google_token(token: str) -> str:
 class TryLuckRequest(BaseModel):
     day: int        
     token: str 
+
+class HistoryRequest(BaseModel):
+    token: str
+
 
 def log_winner_to_file(day, email, prize):
     try:
@@ -116,13 +121,13 @@ def try_luck(request: TryLuckRequest, db: Session = Depends(get_db)):
     current_day_of_month = datetime.now().day
 
     # щоб протестувати вікриття ячейок на фронті просто закоментуй цю перевірку днів (до try)
-    if request.day < current_day_of_month:
-        return {
-            "status": "INFO", 
-            "title": "Архів 📜", 
-            "message": day_config.get('text', 'Цей день вже минув.'),
-            "prize": None
-        }
+    # if request.day < current_day_of_month:
+    #     return {
+    #         "status": "INFO", 
+    #         "title": "Архів 📜", 
+    #         "message": day_config.get('text', 'Цей день вже минув.'),
+    #         "prize": None
+    #     }
 
     try:
         attempt = UserAttempt(stud_email=user_email, day=request.day)
@@ -170,6 +175,15 @@ def try_luck(request: TryLuckRequest, db: Session = Depends(get_db)):
     return response
 
 
+@app.post("/get-history")
+def get_user_history(request: HistoryRequest, db: Session = Depends(get_db)):
+    try:
+        user_email = verify_google_token(request.token)
+    except Exception:
+        return []
+
+    attempts = db.query(UserAttempt).filter(UserAttempt.stud_email == user_email).all()
+    return [attempt.day for attempt in attempts]
 
 if __name__ == "__main__":
     uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)

@@ -10,14 +10,16 @@ Base = declarative_base()
 
 
 class UserAttempt(Base):
-    __tablename__   = 'attempts'
+    __tablename__ = 'attempts' 
     
     id = Column(Integer, primary_key=True, index=True)
     stud_email = Column(String, index=True)
     day = Column(Integer, index=True)
     timestamp = Column(DateTime, default=datetime.now)
 
-    __tablename__=( UniqueConstraint('stud_email', 'day', name= 'one_attempt_per_day') )
+    __table_args__ = (
+        UniqueConstraint('stud_email', 'day', name='one_attempt_per_day'),
+    )
 
 class Winner(Base):
     __tablename__ = 'winners'
