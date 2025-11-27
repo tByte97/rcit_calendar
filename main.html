@@ -105,16 +105,17 @@
         document.addEventListener('alpine:init', () => {
             Alpine.data('adventCalendar', () => ({
                 totalDays: 24,
-                apiUrl: '', //пустий url для продакшену
+                apiUrl: '',  //домен автоматично підставляєтьсяі
                 
                 showModal: false,
                 modalTitle: '',
                 modalMessage: '',
                 modalPrize: null,
                 isLoading: false,
-
-                // !!!! цифри для тесту 1 - перший день, 2 другий і так далі, null автоматично (але вже з грудня рахує)
-                currentDay: 5, 
+                
+                // currentDay: null (авто-дата, починається з грудня), для тестів цифри
+                currentDay: 6, 
+                
                 clickedDays: [],
                 googleToken: null,
                 userEmail: '',
@@ -179,10 +180,13 @@
 
                 async handleDayClick(day) {
                     if (!this.googleToken) { alert("Увійдіть, щоб відкрити календар!"); return; }
-                    if (this.isLocked(day)) { this.presentModal("Ще рано 🔒", "Цей день настане пізніше."); return; }
-                    if (this.isPast(day)) { this.presentModal("Пропущено ❌", "Ех, цей день вже минув."); return; }
-                    if (this.isOpened(day)) { this.presentModal("Вже відкрито ✅", "Ти вже перевіряв цей день."); return; }
-
+                    
+                    if (this.isLocked(day)) { 
+                        this.presentModal("Ще рано 🔒", "Цей день настане пізніше."); 
+                        return; 
+                    }
+                    
+                    
                     this.isLoading = true;
                     this.showModal = true;
                     this.modalTitle = "Відкриваємо...";
@@ -206,7 +210,7 @@
                         const data = await response.json();
                         this.isLoading = false;
                         
-                        if (response.status === 200 || data.status === 'WIN_PRIZE' || data.status === 'INFO') {
+                        if (response.status === 200 || data.status === 'WIN_PRIZE' || data.status === 'INFO' || data.status === 'ALREADY_OPENED') {
                             this.presentModal(data.title || "Повідомлення", data.message, data.prize);
                         } else {
                             this.presentModal("Увага", data.message);
@@ -236,21 +240,9 @@
             }));
         });
 
-
-         document.addEventListener("DOMContentLoaded", async () => {
+        document.addEventListener("DOMContentLoaded", async () => {
             await tsParticles.load('tsparticles', {
-                particles: {
-                    color: { value: "#ffffff" },
-                    move: { enable: true, speed: 1.5, direction: "bottom", random: true },
-                    number: { value: 100, density: { enable: true, area: 800 } },
-                    opacity: { value: 0.7, random: true },
-                    shape: { type: "circle" },
-                    size: { value: { min: 1, max: 4 } },
-                },
-                interactivity: {
-                    events: { onHover: { enable: true, mode: "repulse" } },
-                    modes: { repulse: { distance: 100, duration: 0.4 } }
-                },
+                particles: { color: { value: "#ffffff" }, move: { enable: true, speed: 1.5, direction: "bottom", random: true }, number: { value: 100, density: { enable: true, area: 800 } }, opacity: { value: 0.7, random: true }, shape: { type: "circle" }, size: { value: { min: 1, max: 4 } }, },
                 background: { opacity: 0 }
             });
         });

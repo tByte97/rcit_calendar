@@ -19,7 +19,7 @@ SECRET_SALT = os.getenv("SECRET_SALT", "default_salt_if_missing")
 GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID")
 
 if not GOOGLE_CLIENT_ID:
-    print("⚠️ УВАГА: GOOGLE_CLIENT_ID не знайдено в .env!")
+    print("GOOGLE_CLIENT_ID не знайдено в .env")
 
 try:
     ACTIVE_START_HOUR = int(os.getenv("ACTIVE_START_HOUR", "9"))
@@ -113,6 +113,17 @@ def try_luck(request: TryLuckRequest, db: Session = Depends(get_db)):
     if not day_config:
         raise HTTPException(status_code=404, detail="День не знайдено")
 
+    current_day_of_month = datetime.now().day
+
+    # щоб протестувати вікриття ячейок на фронті просто закоментуй цю перевірку днів (до try)
+    if request.day < current_day_of_month:
+        return {
+            "status": "INFO", 
+            "title": "Архів 📜", 
+            "message": day_config.get('text', 'Цей день вже минув.'),
+            "prize": None
+        }
+
     try:
         attempt = UserAttempt(stud_email=user_email, day=request.day)
         db.add(attempt)
@@ -124,7 +135,7 @@ def try_luck(request: TryLuckRequest, db: Session = Depends(get_db)):
     response = {
         "status": "INFO", 
         "title": "Мудрість дня ✨",
-        "message": day_config.get('text', 'Гарного дня!'),
+        "message": day_config.get('text', 'Бажаємо гарного дня!'),
         "prize": None
     }
 
@@ -150,7 +161,7 @@ def try_luck(request: TryLuckRequest, db: Session = Depends(get_db)):
                     
                     response["status"] = "WIN_PRIZE"
                     response["title"] = "🎉 НЕЙМОВІРНО! 🎉"
-                    response["message"] = "Ти зловив удачу за хвіст!"
+                    response["message"] = "Ти сьогоднішній щасливчик!"
                     response["prize"] = prize_name
                 except IntegrityError:
                     db.rollback()
